@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    # Command to configure Traefik
+    command:
+      # Enable the Traefik API and Dashboard for monitoring Traefik itself
+      - --api.dashboard=true
+      # Enable Docker as a provider for dynamic configuration, allowing Traefik to discover services
+      - --providers.docker=true
+      # By default, Traefik will not expose all containers. We'll explicitly enable them with labels.
+      - --providers.docker.exposedbydefault=false
+      # Define entrypoints for HTTP and HTTPS traffic
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Configure Let's Encrypt (ACME) for automatic SSL certificates (crucial for secure hosting)
+      - --certificatesresolvers.myresolver.acme.tlschallenge=true
+      - --certificatesresolvers.myresolver.acme.email=your-email@example.com # IMPORTANT: Replace with your email for certificate expiry notifications
+      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
+      # Redirect all HTTP traffic to HTTPS for enhanced security
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+    ports:
+      - "80:80"   # Standard HTTP port
+      - "443:443" # Standard HTTPS port
+      # - "8080:8080" # Uncomment to expose Traefik dashboard externally (not recommended for production without authentication)
+    volumes:
+      # Mount the Docker socket to allow Traefik to discover services dynamically
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Volume to store Let's Encrypt certificates persistently
+      - ./letsencrypt:/letsencrypt
+    labels:
+      # Enable Traefik for the Traefik dashboard itself
+      - "traefik.enable=true"
+      # Define a router for the Traefik dashboard, accessible via a specific domain
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.yourdomain.com`)" # IMPORTANT: Replace with your Traefik dashboard domain
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls.certresolver=myresolver"
+      # This example does not include authentication for the dashboard for simplicity.
+      # For production, consider adding basic authentication or other security measures.
+    networks:
+      - web
+
+  # A simple 'whoami' service to demonstrate Traefik routing to a backend application
+  whoami:
+    image: traefik/whoami
+    container_name: whoami
+    labels:
+      # Enable Traefik for this service
+      - "traefik.enable=true"
+      # Define a router for the 'whoami' service, accessible via a specific domain
+      - "traefik.http.routers.whoami.rule=Host(`whoami.yourdomain.com`)" # IMPORTANT: Replace with your service domain
+      - "traefik.http.routers.whoami.entrypoints=websecure"
+      # Use the Let's Encrypt resolver for this service to get an SSL certificate
+      - "traefik.http.routers.whoami.tls.certresolver=myresolver"
+      # Specify the internal port of the 'whoami' container that Traefik should route to
+      - "traefik.http.services.whoami.loadbalancer.server.port=80"
+    networks:
+      - web
+
+networks:
+  # Define a bridge network for Traefik and its services to communicate
+  web:
+    driver: bridge
